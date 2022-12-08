@@ -1,9 +1,17 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import random
+import time
 
 def sum_squared_distance(a,b):
     return(sum((a[1:]-b[1:])**2))
+
+def sum_squared_distance_fast(a,b):
+    subt = a[1:] - b[1:]
+    return(np.dot(subt,subt))
+
+def precision(n,precision):
+    a : float = (n*precision//1)/precision
+    return (a)
 
 def leave_one_out_accuracy(data,features,feature_to_add):
     data_copy = data.copy()
@@ -13,8 +21,6 @@ def leave_one_out_accuracy(data,features,feature_to_add):
             remove.append(i)
     data_copy[:,remove] = 0
 
-    for i in range(len(data_copy[0])):
-        pass
     score = 0
     for i,object_to_classify in enumerate(data_copy):
         label = object_to_classify[0]
@@ -23,42 +29,166 @@ def leave_one_out_accuracy(data,features,feature_to_add):
         nn_loc = np.inf
         for k,object_to_compare in enumerate(data_copy):
             if (i != k):
-                dist = sum_squared_distance(object_to_classify, object_to_compare)
+                dist = sum_squared_distance_fast(object_to_classify, object_to_compare)
+                #print(dist)
+                #print(sum_squared_distance_fast(object_to_classify, object_to_compare))
                 if (dist < nn_dist):
                     nn_dist = dist
                     nn_loc = k
                     nn_label = object_to_compare[0]
         if nn_label == label:
             score+=1
-    return (score / len(data))
+    return (float(precision(score*100,1000) / len(data)))
 
-def leave_one_out_accuracy_TEST(data,current_set,feature_to_add):
-    return (random.random())
+def leave_one_out_accuracy_fast(data,features,feature_to_add):
+    data_copy = data.copy()
+    remove = []
+    for i in range(len(data_copy[0])):
+        if i not in features and i != feature_to_add and i != 0:
+            remove.append(i)
+    data_copy[:,remove] = 0
 
-def feature_search(data):
-    features = []
+    score = 0
+    for i,object_to_classify in enumerate(data_copy):
+        label = object_to_classify[0]
+
+        diff_matrix = data_copy[:,1:] - object_to_classify[1:]
+        diff_matrix[i] = np.inf
+        diff_matrix = np.einsum('ij,ij->i',diff_matrix,diff_matrix)
+        index_min = np.argmin(diff_matrix)
+        nn_dist = sum_squared_distance_fast(object_to_classify, data_copy[index_min])
+        nn_loc = index_min
+        nn_label = data_copy[index_min,0]
+        if nn_label == label:
+            score+=1
+
+    return (float(score / len(data)))
+
+def feature_search_forward(data,epsilon):
+    best_features = []
+    best_accuracy: float = 0
+    search_features = []
+    print("Starting Search \n")
+    best_last_loop = 0
+    default_rate = 0
+
+    for i in data:
+        if i[0] == 2:
+            default_rate+=1
+    default_rate = precision(100*max(default_rate/len(data),1-default_rate/len(data)),100)
+    print(f"The default rate is {default_rate}%\n")
     
     for i in range(1,len(data[0])):
-        print(f"On level {i} of the tree")
         feature_to_add = 0
         best_so_far_accuracy = 0
 
-
         for k in range(1,len(data[0])):
-            if k not in features:
-                print(f"Considering feature {k}")
-                accuracy = leave_one_out_accuracy(data, features, k)
+            if k not in search_features:
+                accuracy = leave_one_out_accuracy_fast(data, search_features, k)
+                print(f"    Using feature(s) {search_features} and [{k}] accuracy is {accuracy}%")
 
                 if accuracy > best_so_far_accuracy:
                     best_so_far_accuracy = accuracy
                     feature_to_add = k
-        features.append(feature_to_add)
-        print(f"On level {i} feature {feature_to_add} was added to set of features")
+        if best_so_far_accuracy >= best_accuracy - epsilon:
+            best_accuracy = best_so_far_accuracy
+            best_features.append(feature_to_add)
+        search_features.append(feature_to_add)
+        print("")
+        if (best_so_far_accuracy < best_last_loop):
+            print(f"Best accuracy decrease from {best_last_loop} to {best_so_far_accuracy}")
+        best_last_loop = best_so_far_accuracy
+        print(f"Feature {feature_to_add} was added to set of features\n")
 
-    return features
+    return (best_features,best_accuracy)
+
+def feature_search_backward(data,epsilon):
+    best_features = []
+    best_accuracy: float = 0
+    search_features = []
+    for i in range(1,len(data[0])):
+        search_features.append(i)
+    print("Starting Search \n")
+    best_last_loop = 0
     
+    for i in range(1,len(data[0])-1):
+        feature_to_remove = 0
+        best_so_far_accuracy = 0
 
+        for k in search_features:
+            temp = search_features.copy()
+            temp.remove(k)
+            accuracy = leave_one_out_accuracy_fast(data, temp, np.inf)
+            print(f"    Using feature(s) {search_features} and removing [{k}] accuracy is {accuracy}%")
+            if accuracy > best_so_far_accuracy:
+                best_so_far_accuracy = accuracy
+                feature_to_remove = k
+        search_features.remove(feature_to_remove)
+        if best_so_far_accuracy >= best_accuracy - epsilon:
+            best_accuracy = best_so_far_accuracy
+            best_features = search_features.copy()
+        print("")
+        if (best_so_far_accuracy < best_last_loop):
+            print(f"Best accuracy decrease from {best_last_loop} to {best_so_far_accuracy}\n")
+        best_last_loop = best_so_far_accuracy
+        if i < len(data[0])-2:
+            print(f"Removed feature {feature_to_remove}, current set is {search_features}\n")
+    default_rate = 0
+    for i in data:
+        if i[0] == 2:
+            default_rate+=1
+    default_rate = precision(100*max(default_rate/len(data),1-default_rate/len(data)),100)
+    print(f"The default rate is {default_rate}%\n")
 
-arr = np.loadtxt("CS170_Small_Data__96.txt")
-features = feature_search(arr)
-print(f"Features chosen: {features}")
+    return (best_features,best_accuracy)
+
+print("What data set would you like to run?")
+print("    1) Small set 96")
+print("    2) Large set 21")
+print("    3) Small set 6")
+print("    4) Large data set 96")
+print("    5) Small data set 88")
+print("    6) Large data set 6")
+print("    7) Small data set 100")
+print("    8) Large data set 85")
+choice = input("Input 1-8: ")
+if choice == "1":
+    string = "CS170_Small_Data__96.txt"
+elif choice == "2":
+    string = "CS170_Large_Data__21.txt"
+elif choice == "3":
+    string = "CS170_Small_Data__6.txt"
+elif choice == "4":
+    string = "CS170_Large_Data__96.txt"
+elif choice == "5":
+    string = "CS170_Small_Data__88.txt"
+elif choice == "6":
+    string = "CS170_Large_Data__6.txt"
+elif choice == "7":
+    string = "CS170_Small_Data__100.txt"
+elif choice == "8":
+    string = "CS170_Large_Data__85.txt"
+
+else:
+    print("bruh! that isn't a choice")
+    exit()
+print("Which algorithm would you like to run?")
+print("    1) Forward Selection")
+print("    2) Backward Elimination")
+choice = input("Input 1 or 2: ")
+
+arr = np.loadtxt(string)
+time1 = time.time()
+if choice == "1":
+    results = feature_search_forward(arr, 0)
+else:
+    results = feature_search_backward(arr, 0.01)
+    pass
+time2 = time.time()
+time = time2 - time1
+
+print(f"The best set of features is {results[0]} with accuracy {results[1]}")
+if time/60 < 1:
+    print(f"Took {precision(time, 1000)} seconds to converge")
+else:
+    print(f"Took {precision(time/60, 1000)} minutes to converge")
